@@ -1,0 +1,33 @@
+archive: TEST
+cleanup_files_when_storing: False
+collection: TEST
+data_source_extensions: ['.fits']
+data_sources: []
+failure_log_file_name: failure_log.txt
+features:
+  run_in_airflow: True
+  supports_catalog: True
+  supports_composite: True
+  supports_latest_client: False
+  supports_multiple_files: True
+interval: 10
+is_connected: True
+log_to_file: False
+logging_level: DEBUG
+observe_execution: False
+progress_file_name: progress.txt
+proxy_file_name: test_proxy.pem
+recurse_data_sources: False
+rejected_file_name: rejected.yml
+resource_id: ivo://cadc.nrc.ca/sc2repo
+retry_count: 1
+retry_decay: 1
+retry_failures: False
+retry_file_name: retries.txt
+storage_inventory_resource_id: ivo://cadc.nrc.ca/global/raven
+store_modified_files_only: False
+stream: raw
+success_log_file_name: success_log.txt
+tap_id: ivo://cadc.nrc.ca/sc2tap
+use_local_files: False
+work_file: todo.txt
