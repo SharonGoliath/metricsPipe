@@ -1,7 +1,7 @@
 #!/bin/bash
 
-COLLECTION="blank"
-IMAGE="opencadc/${COLLECTION}2caom2"
+COLLECTION="metrics"
+IMAGE="SharonGoliath/metricsPipe"
 
 echo "Get a proxy certificate"
 cp $HOME/.ssl/cadcproxy.pem ./ || exit $?

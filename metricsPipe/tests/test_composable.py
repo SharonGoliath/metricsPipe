@@ -66,10 +66,13 @@
 # ***********************************************************************
 #
 
-from mock import patch
+from mock import patch, PropertyMock
 
-from caom2pipe import manage_composable as mc
-from blank2caom2 import composable
+from datetime import datetime
+
+from caom2pipe.data_source_composable import RunnerMeta
+from caom2pipe.manage_composable import State, StorageName
+from metricsPipe import composable
 
 
 @patch('caom2pipe.client_composable.ClientCollection')
@@ -80,7 +83,7 @@ def test_run(do_one_mock, clients_mock, test_config, tmp_path, change_test_dir):
     test_f_name = f'{test_f_id}.fits'
     test_config.change_working_directory(tmp_path.as_posix())
     test_config.proxy_file_name = 'test_proxy.fqn'
-    test_config.task_types = [mc.TaskType.INGEST]
+    test_config.logging_level = 'DEBUG'
     test_config.write_to_file(test_config)
 
     with open(test_config.proxy_fqn, 'w') as f:
@@ -92,12 +95,64 @@ def test_run(do_one_mock, clients_mock, test_config, tmp_path, change_test_dir):
         # execution
         test_result = composable._run()
     except Exception as e:
+        import logging
+        import traceback
+        logging.error(traceback.format_exc())
         assert False, e
 
     assert test_result == 0, 'wrong return value'
     assert do_one_mock.called, 'should have been called'
     args, kwargs = do_one_mock.call_args
     test_storage = args[0]
-    assert isinstance(test_storage, mc.StorageName), type(test_storage)
-    assert test_storage.file_name == test_f_name, 'wrong file name'
-    assert test_storage.source_names[0] == test_f_name, 'wrong fname on disk'
+    assert isinstance(test_storage, StorageName), type(test_storage)
+    assert do_one_mock.call_count == 1, f'wrong call count {do_one_mock.call_count}'
+
+
+@patch(
+    'metricsPipe.log_visit.LocalLogFileDataSource.end_dt',
+    new_callable=PropertyMock(return_value=datetime(year=2025, month=6, day=25, hour=19, minute=5))
+)
+@patch(
+    'caom2pipe.data_source_composable.LocalFilesDataSourceRunnerMeta.'
+    'get_time_box_work',
+    autospec=True,
+)
+@patch('caom2pipe.client_composable.ClientCollection')
+@patch('caom2pipe.execute_composable.OrganizeExecutesRunnerMeta.do_one')
+def test_run_incremental(do_one_mock, clients_mock, data_source_mock, end_time_mock, test_config, tmp_path, change_test_dir):
+    do_one_mock.return_value = (0, None)
+    test_config.change_working_directory(tmp_path.as_posix())
+    test_config.proxy_file_name = 'test_proxy.fqn'
+    test_config.interval = 7200
+    test_config.write_to_file(test_config)
+
+    with open(test_config.proxy_fqn, 'w') as f:
+        f.write('test content')
+    start_time = datetime(year=2025, month=6, day=22, hour=19, minute=5)
+    State.write_bookmark(test_config.state_fqn, test_config.bookmark, start_time)
+    data_source_mock.side_effect = _mock_dir_listing
+
+    try:
+        # execution
+        test_result = composable._run_incremental()
+    except Exception as e:
+        import logging
+        import traceback
+        logging.error(traceback.format_exc())
+        assert False, e
+
+    assert test_result == 0, 'wrong return value'
+    assert do_one_mock.called, 'should have been called'
+    args, kwargs = do_one_mock.call_args
+    test_storage = args[0]
+    assert isinstance(test_storage, StorageName), type(test_storage)
+    assert do_one_mock.call_count == 1, f'wrong call count {do_one_mock.call_count}'
+
+
+def _mock_dir_listing(arg1, output_file='', data_only=True, response_format='arg4'):
+    return [
+        RunnerMeta(
+            StorageName(source_names=['/usr/src/app/ops/me/minoc.test.log']),
+            datetime(year=2025, month=6, day=23, hour=16, minute=27, second=19),
+        ),
+    ]

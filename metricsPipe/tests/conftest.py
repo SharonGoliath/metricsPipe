@@ -2,7 +2,7 @@
 # ******************  CANADIAN ASTRONOMY DATA CENTRE  *******************
 # *************  CENTRE CANADIEN DE DONNÉES ASTRONOMIQUES  **************
 #
-#  (c) 2025.                            (c) 2025.
+#  (c) 2025.                             (c) 2025.
 #  Government of Canada                 Gouvernement du Canada
 #  National Research Council            Conseil national de recherches
 #  Ottawa, Canada, K1A 0R6              Ottawa, Canada, K1A 0R6
@@ -66,61 +66,42 @@
 # ***********************************************************************
 #
 
-"""
-Implements the default entry point functions for the workflow 
-application.
+from os.path import dirname, join, realpath
+from caom2pipe.manage_composable import Config, StorageName, TaskType
+import pytest
 
-'run' executes based on either provided lists of work, or files on disk.
-'run_incremental' executes incrementally, usually based on time-boxed intervals.
-"""
-
-import logging
-import sys
-import traceback
-
-from caom2pipe.run_composable import run_by_state_runner_meta, run_by_todo_runner_meta
-from blank2caom2 import file2caom2_augmentation
+COLLECTION = 'CFHT'
+SCHEME = 'cadc'
+PREVIEW_SCHEME = 'cadc'
 
 
-META_VISITORS = [file2caom2_augmentation]
-DATA_VISITORS = []
+@pytest.fixture()
+def test_config():
+    config = Config()
+    config.collection = COLLECTION
+    config.preview_scheme = PREVIEW_SCHEME
+    config.scheme = SCHEME
+    config.logging_level = 'INFO'
+    config.task_types = [TaskType.VISIT]
+    config.use_local_files = True
+    config.data_sources = ['/usr/src/app/ops/me']
+    config.data_source_extensions = ['.log']
+    config.data_source_globs = ['raven*-202507*.log']
+    StorageName.collection = config.collection
+    StorageName.preview_scheme = config.preview_scheme
+    StorageName.scheme = config.scheme
+    StorageName.data_source_extensions = config.data_source_extensions
+    return config
 
 
-def _run():
-    """
-    Uses a todo file to identify the work to be done.
+@pytest.fixture()
+def test_data_dir():
+    this_dir = dirname(realpath(__file__))
+    fqn = join(this_dir, 'data')
+    return fqn
 
-    :return 0 if successful, -1 if there's any sort of failure. Return status
-        is used by airflow for task instance management and reporting.
-    """
-    return run_by_todo_runner_meta(meta_visitors=META_VISITORS, data_visitors=DATA_VISITORS)
+             
+@pytest.fixture()
+def change_test_dir(tmp_path, monkeypatch): 
+    monkeypatch.chdir(tmp_path)
 
-
-def run():
-    """Wraps _run in exception handling, with sys.exit calls."""
-    try:
-        result = _run()
-        sys.exit(result)
-    except Exception as e:
-        logging.error(e)
-        tb = traceback.format_exc()
-        logging.debug(tb)
-        sys.exit(-1)
-
-
-def _run_incremental():
-    """Uses a state file with a timestamp to identify the work to be done.
-    """
-    return run_by_state_runner_meta(meta_visitors=META_VISITORS, data_visitors=DATA_VISITORS)
-
-
-def run_incremental():
-    """Wraps _run_incremental in exception handling."""
-    try:
-        _run_incremental()
-        sys.exit(0)
-    except Exception as e:
-        logging.error(e)
-        tb = traceback.format_exc()
-        logging.debug(tb)
-        sys.exit(-1)

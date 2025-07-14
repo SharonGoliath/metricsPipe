@@ -66,32 +66,37 @@
 # ***********************************************************************
 #
 
-from caom2pipe import manage_composable as mc
-from blank2caom2 import BlankName
+from mock import patch
+
+from metricsPipe import log_visit
+from caom2pipe.manage_composable import ExecutionReporter2, StorageName
+
+import glob
+import os
 
 
-def test_is_valid():
-    assert BlankName('anything').is_valid()
-    
+def pytest_generate_tests(metafunc):
+    # obs_id_list = glob.glob(f'{metafunc.config.invocation_dir}/data/*.fits.header')
+    test_list = glob.glob('/usr/src/app/ops/me/raven**log')
+    metafunc.parametrize('test_name', test_list)
 
-def test_storage_name(test_config):
-    test_obs_id = 'TEST_OBS_ID'
-    test_f_name = f'{test_obs_id}.fits'
-    test_uri = f'{test_config.scheme}:{test_config.collection}/{test_f_name}'
-    for index, entry in enumerate(
-        [
-            test_f_name, 
-            test_uri, 
-            f'https://localhost:8020/{test_f_name}', 
-            f'vos:goliaths/test/{test_f_name}',
-            f'/tmp/{test_f_name}',
-        ]   
-    ):
-        test_subject = BlankName([entry])
-        assert test_subject.file_id == test_f_name.replace('.fits', '').replace('.header', ''), f'wrong file id {index}'
-        assert test_subject.file_uri == test_uri, f'wrong uri {index}'
-        assert test_subject.obs_id == test_obs_id, f'wrong obs id {index}'
-        assert test_subject.product_id == test_obs_id, f'wrong product id {index}'
-        assert test_subject.source_names == [entry], f'wrong source names {index}'
-        assert test_subject.destination_uris == [test_uri], f'wrong uris {index} {test_subject}'
 
+def test_visit(test_name, test_config, tmp_path, change_test_dir):
+    import logging
+    logging.error(test_name)
+    test_config.change_working_directory(tmp_path.as_posix())
+    storage_name = StorageName([test_name])
+    test_reporter = ExecutionReporter2(test_config)
+    kwargs = {
+        'storage_name': storage_name,
+        'reporter': test_reporter,
+        'config': test_config,
+    }
+    # expected_fqn = test_name.replace('.fits.header', '.expected.xml')
+    # in_fqn = expected_fqn.replace('.expected', '.in')
+    actual_fqn = f'{os.path.dirname(test_name)}/{test_config.collection.lower()}_cumulative.csv'
+    if os.path.exists(actual_fqn):
+        os.unlink(actual_fqn)
+    log_visit.visit(**kwargs)
+    assert os.path.exists(actual_fqn)
+    # assert False  # cause I want to see logging messages

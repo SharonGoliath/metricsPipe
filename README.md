@@ -1,2 +1,2 @@
-# blank2caom2
-Starting point to build an application to generate CAOM2 Observations from FITS files.
+# metricsPipe
+Reuse the pipeline code to organize processing a lot of metrics files.
