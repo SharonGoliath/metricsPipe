@@ -69,6 +69,7 @@
 import dask.bag as db
 import dask.dataframe as dd
 import pandas as pd
+import json
 import logging
 
 from datetime import datetime
@@ -80,107 +81,90 @@ from caom2pipe.execute_composable import CaomExecuteRunnerMeta, OrganizeExecutes
 from caom2pipe.manage_composable import CadcException, exec_cmd_info, StorageName, TaskType
 
 
-__all__ = ['HAProxyVisitor']
+__all__ = ['LogVisitor']
 
-# CFHT would like to know how many people use the CFHT archive each year, from which countries and which products 
-# they use (processed  data? raw data? which instruments?). this information is needed for CFHT's response to French 
-# planning processes. 
+# CFHT would like to know how many people use the CFHT archive each year, from which countries and which products
+# they use (processed  data? raw data? which instruments?). this information is needed for CFHT's response to French
+# planning processes.
 #
 # is it better to use the raven logs? Or both?
 #
 # how many people:
 #     - distinct user's size from minoc logs
 #         - convert between user id, user name, and user CN
-# 
+#
 # which countries - do this out-of-band:
 #     - link to email information from user table, and use the TLD to identify countries
 #
 # which products from which instruments:
 #     - halog:: cat haproxy.log-20250428 | halog -u -H > halog.out
 #     - pd.merge with caom2 table query results, counts by calibration level, instrument
-# 
+#
 
 def my_load(line):
-    bits = line.split()
-    # print(f'10 {bits[10]} 12 {bits[12]} 13{bits[13]} 14 {bits[14]}')
-    # only track successful retrievals
-    if bits[10] == '200' and bits[12] == '-' and bits[13] == '-' and bits[14] == '----' and bits[18] == '"GET':
-        ip_address = bits[5].split(':')[0]
-        f_name = bits[-2].split('/')[-1].split('?RUNID')[0].split('?SUB')[0]
-        # if 'fits' in line:
-        #     print(f'ip_address {ip_address} f_name {f_name}\nbits{bits[-2]}')
-        if 'fits' in f_name:
-            # print(f'ip_address {ip_address} f_name {f_name}')
-            return {
-                'ip_address': ip_address,
-                'f_name': f_name,
-            }
-    return {}
+    try:
+        data = json.loads(line.strip())
+        user = data.get('user', None)
+        if user and user == 'cadcops' or user == 'storops' or user == 'goliaths':
+            return None
+        return {
+            'uri': data.get('resource', None),
+            'user': data.get('user', None),
+        }
+    except json.JSONDecodeError as e:
+        print(f"Error decoding JSON: {e}")
+    return None
 
 
 class HAProxyVisitor:
     def __init__(self, **kwargs):
-        self.config = kwargs.get('config', None)
-        self.storage_name = kwargs.get('storage_name', None)
         self.logger = logging.getLogger(__name__)
+        self.storage_name = kwargs.get('storage_name', None)
 
     def visit(self):
-        self.logger.debug('Begin visit')
+        self.logger.error('Begin visit')
         # questions for IP, file name correlation
-        # 
+        #
         # cannot use halog, because it doesn't report IP addresses in any of its configurations
-        # 
+        #
         # use requests which look like this:
         # Apr 27 04:01:59 localhost haproxy[18895]: 132.246.195.201:54940 [27/Apr/2025:04:01:50.805] wsuv~ uv_minoc/ws-uv-02 0/0/0/30/9160 200 267998814 - - ---- 90/88/3/2/0 0/0 {|} "GET /minoc/files/dXJpPWNhZGM6Q0ZIVC8zMTcyMTAzby5maXRzLmZ6JmdudD1SZWFkR3JhbnQmc3ViPXN0b3JvcHM=~tH9uJXHBV33YVdPe7YcBO6PnTILqGKTM7je_ov4Xng20IK-U8scVvlMJgPuh77qgt4OfTHoVP8DQtopndfcLfOFjVyCTOXMdMelx5Cz3VOScllqTTCjNAYNSsvGmDYDwg4f47BvD-H8r9cmAl3Tg0NVLW58qhtYuDrSWI8J5sFWWosiLrp9UvHv7BB35sn_4HPrANjg-RXA81__JdABIc5DV9xAtAtuCDX1TS0D3Zh4tQv2SsGx7eNOfLcLJutK5XPDBUMhFxbEP_xq2YzUoqScee-RJPHiD-zFIknreL68Ek7Ga7rfIBHJxHd4f_BPjE1EKWYCe5JKx9CoXJA4SEnnew1IDf1X1F8tUA8yuoroRrVOjcXT3Dksqy2Wu8srhQuxK9z-ZYVWXoO06V8OA_HHpmwuRr589qlq2aeoAM9_gCHfwd5oI63fjFDhQj2FPce5gojzhjHZ7ePULJuX-HLaDoB8ZTNp8bu9Dwl7xpL4O8JgfwjSAfFA7ZlAYxcgievsuTabETqhvz5fOitiHlM_ntRfR9lJWpdaOY9WRS6ufEkOI9Il5dKTv_7fK-KLoRu5g8YBY1HMoKodnomDwqah5Kl4Pzrcu6ie64_KKPif2E0dO2hQhpZljb7yjiOYdG3E5Pm-sgYBs8KLfOhDyxzb2OgG1g9J21kd46gzPm4s=/cadc:CFHT/3172103o.fits.fz HTTP/1.1"
-        # 
+        #
         # or like this:
         # Apr 27 17:09:00 localhost haproxy[18895]: 10.21.2.133:42482 [27/Apr/2025:17:08:48.613] wsuv~ uv_minoc/ws-uv-03 0/0/0/498/11536 200 493033374 - - ---- 53/51/8/4/0 0/0 {|} "GET /minoc/files/cadc:CFHT/3172193f.fits.fz HTTP/1.1"
-        # 
+        #
         # or both?
-        # 
-        # only success, which looks like 
+        #
+        # only success, which looks like
         # status == 200, and reporting codes look like " - - ---- "
         #
         # IP Address is the 5th field
         # file name is the last field, split by '/'
-        cumulative_fqn = self.config.lookup.get('cumulative_fqn')
-        caom_fqn = self.config.lookup.get('caom_fqn')
-        instrument = self.config.lookup.get('instrument')
-        caom = pd.read_csv(caom_fqn)
-        # print(caom.head())
-        # print(caom.info())
-        # instrument_df = caom[caom.instrument_name == instrument]
+        cumulative_fqn = self._config.lookup.get('cumulative_fqn')
+        caom_fqn = self._config.lookup.get('caom_fqn')
+        instrument = self._config.lookup.get('instrument')
+        caom = dd.read_csv(caom_fqn).compute()
+        instrument_df = caom[caom.instrument_name == instrument]
         for source_name in self.storage_name.source_names:
             # Process the DataFrame as needed
             ips = db.read_text(
                     source_name
                 ).filter(
-                    lambda line: f'{self.config.scheme}:{self.config.collection}/' in line
+                    lambda line: f'{self._config.scheme}:{self._config.collection}/' in line
                 ).map(my_load)
             meta = {
                 'ip_address': 'object',
                 'f_name': 'object',
-            } 
-            ips_df = ips.to_dataframe(meta=meta).compute().drop_duplicates()
-            self.logger.info(f'Number of CFHT FITS files: {len(ips_df)}')
-            ips_df.to_csv('./ips.csv', header=True, index=False)
-            if len(ips_df) > 0:
-                # print(ips_df.head())
-                # print(ips_df.info())
-                try:
-                    merged = pd.merge(ips_df, caom, how='inner', on=['f_name'])            
-                    self.logger.info(f'Number of WIRCam CFHT files: {len(merged)}')
-                    merged.to_csv(
-                        cumulative_fqn, mode='a', header=not path.exists(cumulative_fqn), index=False
-                    )
-                except Exception as e:
-                    self.logger.error(e)
-                    import traceback
-                    self.logger.error(traceback.format_exc())
-            self.logger.info(f'Processed source name: {source_name}')
-        self.logger.debug('End visit')
+            }
+            ips_df = ips.to_dataframe(meta=meta).compute()
+            merged = pd.merge(ips_df, instrument_df, how='inner', on=['f_name'])
+            merged.to_csv(
+                cumulative_fqn, mode='a', header=not path.exists(cumulative_fqn), index=False
+            )
+            self.logger.error(f'Processed source name: {source_name}')
+        self.logger.error('End visit')
 
 
 def visit(**kwargs):
-    # ignore observation 
+    # ignore observation
     return HAProxyVisitor(**kwargs).visit()
