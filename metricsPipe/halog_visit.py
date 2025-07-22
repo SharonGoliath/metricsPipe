@@ -107,8 +107,8 @@ def my_load(line):
     if bits[10] == '200' and bits[12] == '-' and bits[13] == '-' and bits[14] == '----' and bits[18] == '"GET':
         ip_address = bits[5].split(':')[0]
         f_name = bits[-2].split('/')[-1].split('?RUNID')[0].split('?SUB')[0]
-        if 'fits' in line:
-            # print(f'ip_address {ip_address} f_name {f_name}\nbits{bits[-2]}')
+        # if 'fits' in line:
+        #     print(f'ip_address {ip_address} f_name {f_name}\nbits{bits[-2]}')
         if 'fits' in f_name:
             # print(f'ip_address {ip_address} f_name {f_name}')
             return {
@@ -164,18 +164,19 @@ class HAProxyVisitor:
             ips_df = ips.to_dataframe(meta=meta).compute().drop_duplicates()
             self.logger.info(f'Number of CFHT FITS files: {len(ips_df)}')
             ips_df.to_csv('./ips.csv', header=True, index=False)
-            # print(ips_df.head())
-            # print(ips_df.info())
-            try:
-                merged = pd.merge(ips_df, caom, how='inner', on=['f_name'])            
-                self.logger.info(f'Number of WIRCam CFHT files: {len(merged)}')
-                merged.to_csv(
-                    cumulative_fqn, mode='a', header=not path.exists(cumulative_fqn), index=False
-                )
-            except Exception as e:
-                self.logger.error(e)
-                import traceback
-                self.logger.error(traceback.format_exc())
+            if len(ips_df) > 0:
+                # print(ips_df.head())
+                # print(ips_df.info())
+                try:
+                    merged = pd.merge(ips_df, caom, how='inner', on=['f_name'])            
+                    self.logger.info(f'Number of WIRCam CFHT files: {len(merged)}')
+                    merged.to_csv(
+                        cumulative_fqn, mode='a', header=not path.exists(cumulative_fqn), index=False
+                    )
+                except Exception as e:
+                    self.logger.error(e)
+                    import traceback
+                    self.logger.error(traceback.format_exc())
             self.logger.info(f'Processed source name: {source_name}')
         self.logger.debug('End visit')
 
