@@ -67,7 +67,7 @@
 #
 
 """
-Implements the default entry point functions for the workflow 
+Implements the default entry point functions for the workflow
 application.
 
 'run' executes based on either provided lists of work, or files on disk.
@@ -81,10 +81,10 @@ import traceback
 from caom2pipe.client_composable import ClientCollection
 from caom2pipe.manage_composable import Config, StorageName
 from caom2pipe.run_composable import run_by_state_runner_meta, run_by_todo_runner_meta
-from metricsPipe import aggregate_halog_visit, hits_and_bytes_visit, log_visit
+from metricsPipe import halog_visit
 
 
-META_VISITORS = [hits_and_bytes_visit]
+META_VISITORS = [halog_visit]
 DATA_VISITORS = []
 
 
@@ -122,7 +122,7 @@ def _run():
         clients=clients,
         config=config,
         sources=sources,
-        meta_visitors=META_VISITORS, 
+        meta_visitors=META_VISITORS,
         data_visitors=DATA_VISITORS,
         organizer_module_name='metricsPipe.log_visit',
         organizer_class_name='MetricsPipeOrganizeExecutes',
@@ -149,7 +149,7 @@ def _run_incremental():
         clients=clients,
         config=config,
         sources=sources,
-        meta_visitors=META_VISITORS, 
+        meta_visitors=META_VISITORS,
         data_visitors=DATA_VISITORS,
         organizer_module_name='metricsPipe.log_visit',
         organizer_class_name='MetricsPipeOrganizeExecutes',
