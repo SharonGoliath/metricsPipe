@@ -69,7 +69,6 @@
 import dask.bag as db
 import dask.dataframe as dd
 import pandas as pd
-import json
 import logging
 
 from datetime import datetime
@@ -81,7 +80,7 @@ from caom2pipe.execute_composable import CaomExecuteRunnerMeta, OrganizeExecutes
 from caom2pipe.manage_composable import CadcException, exec_cmd_info, StorageName, TaskType
 
 
-__all__ = ['LogVisitor']
+__all__ = ['HAProxyVisitor']
 
 # CFHT would like to know how many people use the CFHT archive each year, from which countries and which products 
 # they use (processed  data? raw data? which instruments?). this information is needed for CFHT's response to French 
@@ -102,27 +101,31 @@ __all__ = ['LogVisitor']
 # 
 
 def my_load(line):
-    try:
-        data = json.loads(line.strip())
-        user = data.get('user', None)
-        if user and user == 'cadcops' or user == 'storops' or user == 'goliaths':
-            return None
-        return {
-            'uri': data.get('resource', None),
-            'user': data.get('user', None),
-        }
-    except json.JSONDecodeError as e:
-        print(f"Error decoding JSON: {e}")
-    return None
+    bits = line.split()
+    # print(f'10 {bits[10]} 12 {bits[12]} 13{bits[13]} 14 {bits[14]}')
+    # only track successful retrievals
+    if bits[10] == '200' and bits[12] == '-' and bits[13] == '-' and bits[14] == '----' and bits[18] == '"GET':
+        ip_address = bits[5].split(':')[0]
+        f_name = bits[-2].split('/')[-1].split('?RUNID')[0].split('?SUB')[0]
+        if 'fits' in line:
+            # print(f'ip_address {ip_address} f_name {f_name}\nbits{bits[-2]}')
+        if 'fits' in f_name:
+            # print(f'ip_address {ip_address} f_name {f_name}')
+            return {
+                'ip_address': ip_address,
+                'f_name': f_name,
+            }
+    return {}
 
 
 class HAProxyVisitor:
     def __init__(self, **kwargs):
-        self.logger = logging.getLogger(__name__)
+        self.config = kwargs.get('config', None)
         self.storage_name = kwargs.get('storage_name', None)
+        self.logger = logging.getLogger(__name__)
 
     def visit(self):
-        self.logger.error('Begin visit')
+        self.logger.debug('Begin visit')
         # questions for IP, file name correlation
         # 
         # cannot use halog, because it doesn't report IP addresses in any of its configurations
@@ -140,29 +143,41 @@ class HAProxyVisitor:
         #
         # IP Address is the 5th field
         # file name is the last field, split by '/'
-        cumulative_fqn = self._config.lookup.get('cumulative_fqn')
-        caom_fqn = self._config.lookup.get('caom_fqn')
-        instrument = self._config.lookup.get('instrument')
-        caom = dd.read_csv(caom_fqn).compute()
-        instrument_df = caom[caom.instrument_name == instrument]
+        cumulative_fqn = self.config.lookup.get('cumulative_fqn')
+        caom_fqn = self.config.lookup.get('caom_fqn')
+        instrument = self.config.lookup.get('instrument')
+        caom = pd.read_csv(caom_fqn)
+        # print(caom.head())
+        # print(caom.info())
+        # instrument_df = caom[caom.instrument_name == instrument]
         for source_name in self.storage_name.source_names:
             # Process the DataFrame as needed
             ips = db.read_text(
                     source_name
                 ).filter(
-                    lambda line: f'{self._config.scheme}:{self._config.collection}/' in line
+                    lambda line: f'{self.config.scheme}:{self.config.collection}/' in line
                 ).map(my_load)
             meta = {
                 'ip_address': 'object',
                 'f_name': 'object',
             } 
-            ips_df = ips.to_dataframe(meta=meta).compute()
-            merged = pd.merge(ips_df, instrument_df, how='inner', on=['f_name'])            
-            merged.to_csv(
-                cumulative_fqn, mode='a', header=not path.exists(cumulative_fqn), index=False
-            )
-            self.logger.error(f'Processed source name: {source_name}')
-        self.logger.error('End visit')
+            ips_df = ips.to_dataframe(meta=meta).compute().drop_duplicates()
+            self.logger.info(f'Number of CFHT FITS files: {len(ips_df)}')
+            ips_df.to_csv('./ips.csv', header=True, index=False)
+            # print(ips_df.head())
+            # print(ips_df.info())
+            try:
+                merged = pd.merge(ips_df, caom, how='inner', on=['f_name'])            
+                self.logger.info(f'Number of WIRCam CFHT files: {len(merged)}')
+                merged.to_csv(
+                    cumulative_fqn, mode='a', header=not path.exists(cumulative_fqn), index=False
+                )
+            except Exception as e:
+                self.logger.error(e)
+                import traceback
+                self.logger.error(traceback.format_exc())
+            self.logger.info(f'Processed source name: {source_name}')
+        self.logger.debug('End visit')
 
 
 def visit(**kwargs):

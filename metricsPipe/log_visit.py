@@ -269,6 +269,7 @@ class LogVisitor:
     def __init__(self, **kwargs):
         self.logger = logging.getLogger(__name__)
         self.storage_name = kwargs.get('storage_name', None)
+        self.config = kwargs.get('config', None)
 
     def visit(self):
         self.logger.error('Begin visit')

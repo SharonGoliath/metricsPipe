@@ -80,10 +80,10 @@ import traceback
 
 from caom2pipe.manage_composable import Config, StorageName
 from caom2pipe.run_composable import run_by_state_runner_meta, run_by_todo_runner_meta
-from metricsPipe import log_visit
+from metricsPipe import halog_visit
 
 
-META_VISITORS = [log_visit]
+META_VISITORS = [halog_visit]
 DATA_VISITORS = []
 
 
