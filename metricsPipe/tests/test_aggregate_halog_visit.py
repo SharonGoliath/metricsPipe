@@ -2,7 +2,7 @@
 # ******************  CANADIAN ASTRONOMY DATA CENTRE  *******************
 # *************  CENTRE CANADIEN DE DONNÉES ASTRONOMIQUES  **************
 #
-#  (c) 2025.                             (c) 2025.
+#  (c) 2025.                            (c) 2025.
 #  Government of Canada                 Gouvernement du Canada
 #  National Research Council            Conseil national de recherches
 #  Ottawa, Canada, K1A 0R6              Ottawa, Canada, K1A 0R6
@@ -66,45 +66,35 @@
 # ***********************************************************************
 #
 
-from os.path import dirname, join, realpath
-from caom2pipe.manage_composable import Config, StorageName, TaskType
-import pytest
+from mock import patch
 
-COLLECTION = 'CFHT'
-SCHEME = 'cadc'
-PREVIEW_SCHEME = 'cadc'
+from metricsPipe import aggregate_halog_visit
+from caom2pipe.manage_composable import ExecutionReporter2, StorageName
+
+import glob
+import os
 
 
-@pytest.fixture()
-def test_config():
-    config = Config()
-    config.collection = COLLECTION
-    config.preview_scheme = PREVIEW_SCHEME
-    config.scheme = SCHEME
-    config.logging_level = 'INFO'
-    config.task_types = [TaskType.VISIT]
-    config.use_local_files = True
-    config.data_sources = ['/usr/src/app/ops/me']
-    config.data_source_extensions = ['.log']
-    config.data_source_globs = ['raven*-202507*.log']
-    StorageName.collection = config.collection
-    StorageName.preview_scheme = config.preview_scheme
-    StorageName.scheme = config.scheme
-    StorageName.data_source_extensions = config.data_source_extensions
-    config.lookup = {
-        'output_file': '/usr/src/app/metricsPipe/metricsPipe/tests/data/aggregate.csv',
+def pytest_generate_tests(metafunc):
+    # obs_id_list = glob.glob(f'{metafunc.config.invocation_dir}/data/*.fits.header')
+    test_list = glob.glob(f'{metafunc.config.invocation_dir}/data/*srv.out*')
+    metafunc.parametrize('test_name', test_list)
+
+
+def test_visit(test_name, test_config, tmp_path, change_test_dir):
+    import logging
+    logging.error(test_name)
+    test_config.change_working_directory(tmp_path.as_posix())
+    storage_name = StorageName(source_names=[test_name])
+    test_reporter = ExecutionReporter2(test_config)
+    kwargs = {
+        'storage_name': storage_name,
+        'reporter': test_reporter,
+        'config': test_config,
     }
-    return config
-
-
-@pytest.fixture()
-def test_data_dir():
-    this_dir = dirname(realpath(__file__))
-    fqn = join(this_dir, 'data')
-    return fqn
-
-             
-@pytest.fixture()
-def change_test_dir(tmp_path, monkeypatch): 
-    monkeypatch.chdir(tmp_path)
-
+    # expected_fqn = test_name.replace('.fits.header', '.expected.xml')
+    # in_fqn = expected_fqn.replace('.expected', '.in')
+    actual_fqn = test_config.lookup.get('output_file')
+    aggregate_halog_visit.visit(**kwargs)
+    assert os.path.exists(actual_fqn)
+    assert False  # cause I want to see logging messages
