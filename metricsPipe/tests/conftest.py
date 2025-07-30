@@ -92,8 +92,7 @@ def test_config():
     StorageName.scheme = config.scheme
     StorageName.data_source_extensions = config.data_source_extensions
     config.lookup = {
-        'srv_output_file': '/usr/src/app/metricsPipe/metricsPipe/tests/data/srv_aggregate.csv',
-        'community_output_file': '/usr/src/app/metricsPipe/metricsPipe/tests/data/community_aggregate.csv',
+        'output_file': '/usr/src/app/metricsPipe/metricsPipe/tests/data/aggregate.csv',
     }
     return config
 
@@ -104,8 +103,8 @@ def test_data_dir():
     fqn = join(this_dir, 'data')
     return fqn
 
-             
+
 @pytest.fixture()
-def change_test_dir(tmp_path, monkeypatch): 
+def change_test_dir(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
