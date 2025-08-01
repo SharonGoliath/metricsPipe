@@ -72,17 +72,20 @@ import pandas as pd
 # import json
 import logging
 
-from datetime import datetime
+from collections import defaultdict
+from datetime import datetime, timedelta
 from glob import glob
-from os import stat, path
+from os import stat, path, unlink
 
 from caom2pipe.data_source_composable import LocalFilesDataSourceRunnerMeta
 from caom2pipe.execute_composable import CaomExecuteRunnerMeta, OrganizeExecutesRunnerMeta
-from caom2pipe.manage_composable import CadcException, exec_cmd_info, StorageName, TaskType
+from caom2pipe.manage_composable import CadcException, exec_cmd, exec_cmd_info, StorageName, TaskType
 from metricsPipe.log_visit import LogVisitor
 
 
 __all__ = ['AggregateHAlogVisitor']
+
+bins = defaultdict(list)
 
 
 class AggregateHAlogVisitor(LogVisitor):
@@ -115,27 +118,16 @@ class AggregateHAlogVisitor(LogVisitor):
         # 619515 lines in, 14 lines out, 52 parsing errors
         # need it to look like:
 
-        # need it to look like - can get this by adding in a couple of columns to the incoming DataFrame
-        # start_ts end_ts srv_name 1xx 2xx 3xx 4xx 5xx other tot_req req_ok pct_ok avg_ct avg_rt
-        # 1745798400 1745798800 src_cavern/cavern 0 15 0 0 0 0 15 15 100.0 0 47
-        # 1745798400 1745798800 src_portalui/arc 0 13 0 0 0 0 13 13 100.0 0 26
-        # 1745798400 1745798800 src_storageui/arc 0 14 0 0 0 0 14 14 100.0 0 134
-        # 1745798400 1745798800 uv_ac/horde-uv 0 259 0 0 0 0 259 259 100.0 143 1239
-        # 1745798400 1745798800 uv_luskan/horde-uv 0 84 73 0 0 0 157 157 100.0 144 8495
-        # 1745798400 1745798800 uv_minoc/ws-uv-01 0 330 0 153 0 0 483 483 100.0 0 947
-        # 1745798400 1745798800 uv_minoc/ws-uv-02 0 329 0 155 0 0 484 484 100.0 0 454
-        # 1745798400 1745798800 uv_minoc/ws-uv-03 0 325 0 159 0 0 484 484 100.0 0 931
-        # 1745798400 1745798800 uv_reg/horde-uv 0 19 0 0 0 0 19 19 100.0 83 108
-        # 1745798400 1745798800 uv_youcat/ws-uv-02 0 1 0 0 0 0 1 1 100.0 0 176
-        # 1745798400 1745798800 uv_youcat/ws-uv-03 0 1 0 0 0 0 1 1 100.0 1 158
-        # 1745798400 1745798800 ws_arc/arc 0 3262 0 1 0 0 3263 3263 100.0 0 1164
-        # 1745798400 1745798800 ws_skaha/skaha 0 10 0 0 0 0 10 10 100.0 1 463
-        # 1745798400 1745798800 wsuv/<NOSRV> 0 0 0 2 0 0 2 0 0.0 0 0
-        # 619515 lines in, 14 lines out, 52 parsing errors
-
-
         # 8760 h/year * 0.95 = 8322 h/year
         # 336 h/2 week period * 0.95 = 320 h/2 week period
+        if len(bins) != 8760:
+            start_time = datetime(year=2024, month=1, day=1)
+            end_time = datetime(year=2024, month=12, day=31)
+            for i in range(0, 8760):
+                ts = start_time.timestamp() + timedelta(hours=i).total_seconds()
+                # I want to know which timestamp to start at, based on the timestamp in the file name, which is a day
+                # bucket
+                bins[ts] = []
 
         # this is one visitor: 
         # for each day:
@@ -158,28 +150,30 @@ class AggregateHAlogVisitor(LogVisitor):
         for source_name in self.storage_name.source_names:
             # Process the DataFrame as needed
             self.logger.error(f'Processed source name: {source_name}')
-            new_df = pd.read_csv(source_name, sep=' ')
-            start_ts = 1745798800
-            end_ts = 1745798800
-            new_df['start_ts'] = start_ts
-            new_df['end_ts'] = end_ts
-            # self.logger.error(new_df.info())
-            # self.logger.error(new_df.head())
-            # self.logger.error(new_df.columns)
+            # 20240103 
+            # YYYYMMDD
+            day_bin = datetime.strptime(path.basename(source_name.replace('.gz', '')).split('-')[-1], '%Y%m%d')
+            if source_name.endswith('.gz'):
+                exec_cmd(f'gunzip {source_name}')
+            for hour in range(0, 24):
+                start_ts = (day_bin + timedelta(hours=hour)).timestamp()
+                end_ts = (day_bin + timedelta(hours=(hour + 1))).timestamp()
+                halog_out_fqn = f'{self.config.working_directory}/halog_out.{start_ts}.{end_ts}'
+                info_cmd = f'halog -srv -time {start_ts}:{end_ts} < {source_name.replace(".gz", "")} > {halog_out_fqn} 2> /dev/null'
+                exec_cmd(info_cmd)
 
-            if len(new_df) > 2:
-                import os 
-                self.logger.error(os.listdir(path.dirname(output_file)))
-                if path.exists(output_file):
-                    self.logger.error(f'Add {source_name} to existing data.')
-                    existing_df = pd.read_csv(output_file)
-                    combined = pd.concat([new_df, existing_df])
-                    combined.to_csv(output_file, header=True, index=False)
-                else:
-                    self.logger.error(f'Start with {source_name}.')
-                    new_df.to_csv(output_file, header=True, index=False)
-                self.logger.error(os.listdir(path.dirname(output_file)))
+                new_df = pd.read_csv(halog_out_fqn, sep=' ')
+                new_df['start_ts'] = start_ts
+                new_df['end_ts'] = end_ts
+                # self.logger.error(new_df.info())
+                # self.logger.error(new_df.head())
+                # self.logger.error(new_df.columns)
 
+                if len(new_df) > 2:
+                    new_df.to_csv(output_file, mode='a', header=False, index=False)
+                unlink(halog_out_fqn)
+            if source_name.endswith('.gz'):
+                exec_cmd(f'gzip {source_name.replace('.gz', '')}')
         self.logger.error('End visit')
 
 

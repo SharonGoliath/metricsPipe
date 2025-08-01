@@ -77,7 +77,8 @@ import os
 
 def pytest_generate_tests(metafunc):
     # obs_id_list = glob.glob(f'{metafunc.config.invocation_dir}/data/*.fits.header')
-    test_list = glob.glob(f'{metafunc.config.invocation_dir}/data/*srv.out*')
+    # test_list = glob.glob(f'{metafunc.config.invocation_dir}/data/halog*')
+    test_list = glob.glob('/data/haproxy*')
     metafunc.parametrize('test_name', test_list)
 
 
@@ -92,8 +93,6 @@ def test_visit(test_name, test_config, tmp_path, change_test_dir):
         'reporter': test_reporter,
         'config': test_config,
     }
-    # expected_fqn = test_name.replace('.fits.header', '.expected.xml')
-    # in_fqn = expected_fqn.replace('.expected', '.in')
     actual_fqn = test_config.lookup.get('output_file')
     aggregate_halog_visit.visit(**kwargs)
     assert os.path.exists(actual_fqn)
