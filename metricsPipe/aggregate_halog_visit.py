@@ -88,6 +88,53 @@ __all__ = ['AggregateHAlogVisitor']
 bins = defaultdict(list)
 
 
+# halog
+#
+# Usage:
+#  halog [-h|--help] for long help
+#  halog [input_filters]* [modifiers]* [output_format] < log
+#    inp = [-e|-E] [-H] [-Q|-QS] [-rt|-RT <time>] [-ad <delay>] [-ac <count>]
+#          [-hs|-HS [min][:[max]]] [-tcn|-TCN <termcode>] [-time [min][:[max]]]
+#    mod = [-q] [-v] [-m <lines>] [-s <skipflds>] [-query]
+#    out = {-c|-u|-uc|-ue|-ua|-ut|-uao|-uto|-uba|-ubt|-hdr <block>:<field>|
+#           -cc|-gt|-pct|-st|-tc|-srv|-ic}
+#
+# Jan  2 08:15:47 localhost haproxy[15733]: 206.12.48.213:59000 [02/Jan/2024:08:15:47.740] <frontend> <backend/server> 
+# <Timers> <HTTP status> <Bytes count> - - ---- <conn count> 0/0 {||ws.cadc-ccda.hia-iha.nrc-cnrc.gc.ca} 
+# "GET /cred/priv/dn/cn%3Dchimefrb_a78%2Cou%3Dcadc%2Co%3Dhia%2Cc%3Dca?daysValid=0.1 HTTP/1.1"
+
+# <frontend> looks like ws.cadc~
+# <backend/server> looks like cadc-ws/cadc-ws-04
+#
+# <Timers> looks like 0/0/0/99/99 
+# HTTP format - TR/Tw/Tc/Tr/Ta
+# TR - total time to get the client request
+# Tw - total time spent waiting in queues for a connection slot
+# Tc - total time to establish the TCP connection to the server
+# Tr - server response time
+# Ta - total active time for HTTP request
+#
+# TCP format - Tw/Tc/Tt
+# Tt - total TCP session duration time, between the moment the proxy accepted it and the moment both ends were closed
+#
+# <conn count> looks like 355/348/2/0/0 - a/b/c/d/e
+# a - total number of concurrent connections on the HAProxy process when the session was logged
+# b - total number of concurrent connections routed through this "frontend" when the session was logged
+# c - total number of concurrent connections routed through this "backend" when the session was logged
+# d - total number of concurrent connections still active on this server when the session was logged
+# e - number of retries attempted when trying to connect to the backend server
+
+# out
+# -c report number of lines
+# -pct connect and response time percentiles
+# -st number of requests per status code
+
+# don't use
+# halog -H -srv -pct
+
+def _consolidate_server_names(a):
+    return a.split('/')[0]
+
 class AggregateHAlogVisitor(LogVisitor):
     # def __init__(self, **kwargs):
     #     self.logger = logging.getLogger(__name__)
@@ -120,14 +167,6 @@ class AggregateHAlogVisitor(LogVisitor):
 
         # 8760 h/year * 0.95 = 8322 h/year
         # 336 h/2 week period * 0.95 = 320 h/2 week period
-        if len(bins) != 8760:
-            start_time = datetime(year=2024, month=1, day=1)
-            end_time = datetime(year=2024, month=12, day=31)
-            for i in range(0, 8760):
-                ts = start_time.timestamp() + timedelta(hours=i).total_seconds()
-                # I want to know which timestamp to start at, based on the timestamp in the file name, which is a day
-                # bucket
-                bins[ts] = []
 
         # this is one visitor: 
         # for each day:
@@ -146,34 +185,65 @@ class AggregateHAlogVisitor(LogVisitor):
         # calculate the two week percentage
 
 
-        output_file = self.config.lookup.get('output_file')
+        output_file = self.config.lookup.get('srv_output_file')
+        community_file = self.config.lookup.get('community_output_file')
         for source_name in self.storage_name.source_names:
             # Process the DataFrame as needed
             self.logger.error(f'Processed source name: {source_name}')
             # 20240103 
             # YYYYMMDD
             day_bin = datetime.strptime(path.basename(source_name.replace('.gz', '')).split('-')[-1], '%Y%m%d')
+            interim_name = source_name
             if source_name.endswith('.gz'):
-                exec_cmd(f'gunzip {source_name}')
+                # gunzip --stdout /logs/dao-proxy-03/haproxy.log-20250811.gz > dao3.log-20250811
+                interim_name = f'{self.config.working_directory}/{path.basename(source_name.replace('.gz', ''))}/out.log'
+                exec_cmd(f'gunzip --stdout {source_name} > {interim_name}')
             for hour in range(0, 24):
+                self.logger.info(f'Hour {hour} of {day_bin}')
                 start_ts = (day_bin + timedelta(hours=hour)).timestamp()
                 end_ts = (day_bin + timedelta(hours=(hour + 1))).timestamp()
+                # self.logger.error(f'day bin {day_bin} start {start_ts} end {end_ts}')
                 halog_out_fqn = f'{self.config.working_directory}/halog_out.{start_ts}.{end_ts}'
-                info_cmd = f'halog -srv -time {start_ts}:{end_ts} < {source_name.replace(".gz", "")} > {halog_out_fqn} 2> /dev/null'
+                info_cmd = f'halog -srv -time {start_ts}:{end_ts} < {interim_name} > {halog_out_fqn} 2> /dev/null'
                 exec_cmd(info_cmd)
 
                 new_df = pd.read_csv(halog_out_fqn, sep=' ')
-                new_df['start_ts'] = start_ts
-                new_df['end_ts'] = end_ts
-                # self.logger.error(new_df.info())
-                # self.logger.error(new_df.head())
-                # self.logger.error(new_df.columns)
+                # TODO things to fix in the data cleaning
+                # 1. consolidate the workers for a service
+                new_df['srv'] = new_df['#srv_name'].apply(_consolidate_server_names)
+                # 2. if, for example ws_transfer/<NOSRV> has a bunch of 500s, need to figure out where they were supposed to go
+                #    and add that to the failures for the service
+                # 3. should this row show up in the results: "ws.cadc/<NOSRV> 80 0"
+                # 4. remove the SSL and Stopped rows
+                new_df = new_df[new_df['#srv_name'] != 'SSL']
+                new_df = new_df[new_df['#srv_name'] != 'Stopped']
+                # Group by 'srv' and sum 'tot_req' and '5xx'
+                agg_df = new_df.groupby('srv', as_index=False).agg(
+                    tot_req=('tot_req', 'sum'),
+                    tot_5xx=('5xx', 'sum'),
+                )
+                agg_df['start_ts'] = start_ts
+                agg_df['end_ts'] = end_ts
 
-                if len(new_df) > 2:
-                    new_df.to_csv(output_file, mode='a', header=False, index=False)
+                # 5., 6. the services on the cadc-app/cadc-ws servers
+                other_info_cmd = f'/usr/src/app/.local/bin/halog_services.sh {start_ts} {end_ts} {interim_name} {halog_out_fqn}'
+                exec_cmd(other_info_cmd)
+                community_df = pd.read_csv(halog_out_fqn)
+                # Group by 'srv' and sum 'tot_req' and '5xx'
+                community_agg_df = community_df.groupby('srv').agg(
+                    tot_req=('status', 'count'),
+                    tot_5xx=('status', lambda x: x.astype(str).str.startswith('5').sum())
+                ).reset_index()
+                community_agg_df['start_ts'] = start_ts
+                community_agg_df['end_ts'] = end_ts
+
+                if len(agg_df) > 2:
+                    agg_df.to_csv(output_file, mode='a', header=not path.exists(output_file), index=False)
+                    # new_df.to_csv(debug_output_file, mode='a', header=not path.exists(debug_output_file), index=False)
+
+                if len(community_agg_df) > 2:
+                    community_agg_df.to_csv(community_file, mode='a', header=not path.exists(community_file), index=False)
                 unlink(halog_out_fqn)
-            if source_name.endswith('.gz'):
-                exec_cmd(f'gzip {source_name.replace('.gz', '')}')
         self.logger.error('End visit')
 
 

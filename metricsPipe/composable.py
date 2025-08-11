@@ -78,13 +78,21 @@ import logging
 import sys
 import traceback
 
+from caom2pipe.client_composable import ClientCollection
 from caom2pipe.manage_composable import Config, StorageName
 from caom2pipe.run_composable import run_by_state_runner_meta, run_by_todo_runner_meta
-from metricsPipe import halog_visit
+from metricsPipe import aggregate_halog_visit, log_visit
 
 
-META_VISITORS = [halog_visit]
+META_VISITORS = [aggregate_halog_visit]
 DATA_VISITORS = []
+
+
+class NullClientCollection(ClientCollection):
+
+    def _init(self, _):
+        # over-ride the part that creates the clients and opens connections
+        pass
 
 
 def _common_init():
@@ -98,7 +106,8 @@ def _common_init():
     if config.use_local_files:
         source = log_visit.LocalLogFileDataSource(config)
         sources.append(source)
-    return config, sources
+    clients = NullClientCollection(config)
+    return config, sources, clients
 
 
 def _run():
@@ -108,8 +117,9 @@ def _run():
     :return 0 if successful, -1 if there's any sort of failure. Return status
         is used by airflow for task instance management and reporting.
     """
-    config, sources = _common_init()
+    config, sources, clients = _common_init()
     return run_by_todo_runner_meta(
+        clients=clients,
         config=config,
         sources=sources,
         meta_visitors=META_VISITORS, 
@@ -134,8 +144,9 @@ def run():
 def _run_incremental():
     """Uses a state file with a timestamp to identify the work to be done.
     """
-    config, sources = _common_init()
+    config, sources, clients = _common_init()
     return run_by_state_runner_meta(
+        clients=clients,
         config=config,
         sources=sources,
         meta_visitors=META_VISITORS, 
