@@ -81,10 +81,10 @@ import traceback
 from caom2pipe.client_composable import ClientCollection
 from caom2pipe.manage_composable import Config, StorageName
 from caom2pipe.run_composable import run_by_state_runner_meta, run_by_todo_runner_meta
-from metricsPipe import halog_visit
+from metricsPipe import aggregate_halog_visit, log_visit
 
 
-META_VISITORS = [halog_visit]
+META_VISITORS = [aggregate_halog_visit]
 DATA_VISITORS = []
 
 

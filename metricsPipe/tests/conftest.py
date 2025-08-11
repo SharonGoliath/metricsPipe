@@ -92,7 +92,8 @@ def test_config():
     StorageName.scheme = config.scheme
     StorageName.data_source_extensions = config.data_source_extensions
     config.lookup = {
-        'output_file': '/usr/src/app/metricsPipe/metricsPipe/tests/data/aggregate.csv',
+        'srv_output_file': '/usr/src/app/metricsPipe/metricsPipe/tests/data/srv_aggregate.csv',
+        'community_output_file': '/usr/src/app/metricsPipe/metricsPipe/tests/data/community_aggregate.csv',
     }
     return config
 
