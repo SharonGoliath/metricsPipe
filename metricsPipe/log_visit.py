@@ -195,6 +195,7 @@ class MetricsPipeVisit(CaomExecuteRunnerMeta):
                 'reporter': self._reporter,
             }
             for visitor in self.meta_visitors:
+                self._logger.debug(visitor.__class__.__name__)
                 try:
                     visitor.visit(**kwargs)
                 except Exception as e:
@@ -305,3 +306,4 @@ class LogVisitor:
 def visit(**kwargs):
     # ignore observation 
     return LogVisitor(**kwargs).visit()
+
