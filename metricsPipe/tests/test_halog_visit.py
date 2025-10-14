@@ -66,103 +66,37 @@
 # ***********************************************************************
 #
 
-"""
-Implements the default entry point functions for the workflow 
-application.
+from mock import patch
 
-'run' executes based on either provided lists of work, or files on disk.
-'run_incremental' executes incrementally, usually based on time-boxed intervals.
-"""
+from metricsPipe import log_visit
+from caom2pipe.manage_composable import ExecutionReporter2, StorageName
 
-import logging
-import sys
-import traceback
-
-from caom2pipe.client_composable import ClientCollection
-from caom2pipe.manage_composable import Config, StorageName
-from caom2pipe.run_composable import run_by_state_runner_meta, run_by_todo_runner_meta
-from metricsPipe import aggregate_halog_visit, hits_and_bytes_visit, log_visit
+import glob
+import os
 
 
-META_VISITORS = [hits_and_bytes_visit]
-DATA_VISITORS = []
+def pytest_generate_tests(metafunc):
+    # obs_id_list = glob.glob(f'{metafunc.config.invocation_dir}/data/*.fits.header')
+    test_list = glob.glob('/usr/src/app/ops/me/raven**log')
+    metafunc.parametrize('test_name', test_list)
 
 
-class NullClientCollection(ClientCollection):
-
-    def _init(self, _):
-        # over-ride the part that creates the clients and opens connections
-        pass
-
-
-def _common_init():
-    config = Config()
-    config.get_executors()
-    StorageName.collection = config.collection
-    StorageName.scheme = config.scheme
-    StorageName.preview_scheme = config.preview_scheme
-    StorageName.data_source_extensions = config.data_source_extensions
-    sources = []
-    if config.use_local_files:
-        source = log_visit.LocalLogFileDataSource(config)
-        sources.append(source)
-    clients = NullClientCollection(config)
-    return config, sources, clients
-
-
-def _run():
-    """
-    Uses a todo file to identify the work to be done.
-
-    :return 0 if successful, -1 if there's any sort of failure. Return status
-        is used by airflow for task instance management and reporting.
-    """
-    config, sources, clients = _common_init()
-    return run_by_todo_runner_meta(
-        clients=clients,
-        config=config,
-        sources=sources,
-        meta_visitors=META_VISITORS, 
-        data_visitors=DATA_VISITORS,
-        organizer_module_name='metricsPipe.log_visit',
-        organizer_class_name='MetricsPipeOrganizeExecutes',
-    )
-
-
-def run():
-    """Wraps _run in exception handling, with sys.exit calls."""
-    try:
-        result = _run()
-        sys.exit(result)
-    except Exception as e:
-        logging.error(e)
-        tb = traceback.format_exc()
-        logging.debug(tb)
-        sys.exit(-1)
-
-
-def _run_incremental():
-    """Uses a state file with a timestamp to identify the work to be done.
-    """
-    config, sources, clients = _common_init()
-    return run_by_state_runner_meta(
-        clients=clients,
-        config=config,
-        sources=sources,
-        meta_visitors=META_VISITORS, 
-        data_visitors=DATA_VISITORS,
-        organizer_module_name='metricsPipe.log_visit',
-        organizer_class_name='MetricsPipeOrganizeExecutes',
-    )
-
-
-def run_incremental():
-    """Wraps _run_incremental in exception handling."""
-    try:
-        _run_incremental()
-        sys.exit(0)
-    except Exception as e:
-        logging.error(e)
-        tb = traceback.format_exc()
-        logging.debug(tb)
-        sys.exit(-1)
+def test_visit(test_name, test_config, tmp_path, change_test_dir):
+    import logging
+    logging.error(test_name)
+    test_config.change_working_directory(tmp_path.as_posix())
+    storage_name = StorageName([test_name])
+    test_reporter = ExecutionReporter2(test_config)
+    kwargs = {
+        'storage_name': storage_name,
+        'reporter': test_reporter,
+        'config': test_config,
+    }
+    # expected_fqn = test_name.replace('.fits.header', '.expected.xml')
+    # in_fqn = expected_fqn.replace('.expected', '.in')
+    actual_fqn = f'{os.path.dirname(test_name)}/{test_config.collection.lower()}_cumulative.csv'
+    if os.path.exists(actual_fqn):
+        os.unlink(actual_fqn)
+    log_visit.visit(**kwargs)
+    assert os.path.exists(actual_fqn)
+    # assert False  # cause I want to see logging messages
