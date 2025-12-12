@@ -56,6 +56,7 @@ def query(collection):
 
 
 def main():
+    print(f'How many planes that were observed per year, that are available from CADC for {collection}.')
     collection = sys.argv[1]
     query(collection)
 

@@ -85,29 +85,29 @@ from metricsPipe.log_visit import LogVisitor
 
 __all__ = ['HitsAndBytes']
 
-# CFHT would like to know how many people use the CFHT archive each year, from which countries and which products 
-# they use (processed  data? raw data? which instruments?). this information is needed for CFHT's response to French 
-# planning processes. 
+# CFHT would like to know how many people use the CFHT archive each year, from which countries and which products
+# they use (processed  data? raw data? which instruments?). this information is needed for CFHT's response to French
+# planning processes.
 #
 # is it better to use the raven logs? Or both?
 #
 # how many people:
 #     - distinct user's size from minoc logs
 #         - convert between user id, user name, and user CN
-# 
+#
 # which countries - do this out-of-band:
 #     - link to email information from user table, and use the TLD to identify countries
 #
 # which products from which instruments:
 #     - pd.merge with caom2 table query results, counts by calibration level, instrument
-# 
+#
 # how to stitch together each of the minoc logs:
 #     for each minoc log:
 #          - do the load and filter that is here
 #          - do the merge with the caom2 table query results that is here
 #          - append the merged with caom2 counts to a file
 #          - append the user names to a different file
-# 
+#
 #     assemble all the lines together into one set of metrics for file, instrument types
 #     assemble the country information out-of-band
 
@@ -204,7 +204,7 @@ class HitsAndBytes(LogVisitor):
                 # interim_name = f'{self.config.working_directory}/{path.basename(source_name.replace('.gz', ''))}/out.log'
                 # exec_cmd(f'gunzip --stdout {source_name} > {interim_name}')
                 grep_cmd = f'zgrep www-cadc {source_name} > {grep_output_fqn}'
- 
+
             exec_cmd(grep_cmd)
             # Load the log file
             log_bag = db.read_text(grep_output_fqn).map(my_load)
@@ -228,5 +228,5 @@ class HitsAndBytes(LogVisitor):
 
 
 def visit(**kwargs):
-    # ignore observation 
+    # ignore observation
     return HitsAndBytes(**kwargs).visit()
