@@ -192,13 +192,25 @@ class AggregateHAlogVisitor(LogVisitor):
             self.logger.error(f'Processed source name: {source_name}')
             # 20240103 
             # YYYYMMDD
-            day_bin = datetime.strptime(path.basename(source_name.replace('.gz', '')).split('-')[-1], '%Y%m%d')
+
+            # day_bin = datetime.strptime(path.basename(source_name.replace('.gz', '')).split('-')[-1], '%Y%m%d')
+
+
             interim_name = source_name
             if source_name.endswith('.gz'):
                 # gunzip --stdout /logs/dao-proxy-03/haproxy.log-20250811.gz > dao3.log-20250811
                 interim_name = f'{self.config.working_directory}/{path.basename(source_name.replace('.gz', ''))}/out.log'
                 exec_cmd(f'gunzip --stdout {source_name} > {interim_name}')
-            for hour in range(0, 24):
+
+            # the timestamps in the files are not aligned with the timestamps in the file names, 
+            # so get the starting timestamp from the first line of the file
+            with open(interim_name, 'r') as f:
+                first_line = f.readline().rstrip()
+                bits = first_line.split()
+                day_bin = datetime.strptime(bits[6], '[%d/%b/%Y:%H:%M:%S.%f]')
+            # because I don't want to read in the entire file to get the timestamp from the last line logged in the file
+            # try using an extra hour per day
+            for hour in range(0, 26):
                 self.logger.info(f'Hour {hour} of {day_bin}')
                 start_ts = (day_bin + timedelta(hours=hour)).timestamp()
                 end_ts = (day_bin + timedelta(hours=(hour + 1))).timestamp()
@@ -226,23 +238,25 @@ class AggregateHAlogVisitor(LogVisitor):
                 agg_df['end_ts'] = end_ts
 
                 # 5., 6. the services on the cadc-app/cadc-ws servers
-                other_info_cmd = f'/usr/src/app/.local/bin/halog_services.sh {start_ts} {end_ts} {interim_name} {halog_out_fqn}'
-                exec_cmd(other_info_cmd)
-                community_df = pd.read_csv(halog_out_fqn)
+                # other_info_cmd = f'/usr/src/app/.local/bin/halog_services.sh {start_ts} {end_ts} {interim_name} {halog_out_fqn}'
+                # exec_cmd(other_info_cmd)
+                # community_df = pd.read_csv(halog_out_fqn)
                 # Group by 'srv' and sum 'tot_req' and '5xx'
-                community_agg_df = community_df.groupby('srv').agg(
-                    tot_req=('status', 'count'),
-                    tot_5xx=('status', lambda x: x.astype(str).str.startswith('5').sum())
-                ).reset_index()
-                community_agg_df['start_ts'] = start_ts
-                community_agg_df['end_ts'] = end_ts
+                # community_agg_df = community_df.groupby('srv').agg(
+                #     tot_req=('status', 'count'),
+                #     tot_5xx=('status', lambda x: x.astype(str).str.startswith('5').sum())
+                # ).reset_index()
+                # community_agg_df['start_ts'] = start_ts
+                # community_agg_df['end_ts'] = end_ts
 
                 if len(agg_df) > 2:
                     agg_df.to_csv(output_file, mode='a', header=not path.exists(output_file), index=False)
                     # new_df.to_csv(debug_output_file, mode='a', header=not path.exists(debug_output_file), index=False)
+                # else:
+                #     self.logger.error(f'nope {hour}')
 
-                if len(community_agg_df) > 2:
-                    community_agg_df.to_csv(community_file, mode='a', header=not path.exists(community_file), index=False)
+                # if len(community_agg_df) > 2:
+                #     community_agg_df.to_csv(community_file, mode='a', header=not path.exists(community_file), index=False)
                 unlink(halog_out_fqn)
         self.logger.error('End visit')
 

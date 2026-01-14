@@ -1,4 +1,5 @@
 #!/bin/bash
+# this script is to find out information on specific /community use
 start_time=$1
 end_time=$2
 input=$3
