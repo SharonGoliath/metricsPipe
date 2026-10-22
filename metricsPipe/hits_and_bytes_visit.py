@@ -164,7 +164,7 @@ def exec_cmd(cmd, log_level_as=logging.debug, timeout=None):
 def my_load(line):
     bits = line.split()
     try:
-        if len(bits) in [18, 20, 21]:
+        if len(bits) in [18, 20, 21, 22]:
             return {
                 'bytes': int(bits[11]),
             }

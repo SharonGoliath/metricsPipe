@@ -188,6 +188,7 @@ class AggregateHAlogVisitor(LogVisitor):
         output_file = self.config.lookup.get('srv_output_file')
         community_file = self.config.lookup.get('community_output_file')
         for source_name in self.storage_name.source_names:
+            start_time = datetime.now().timestamp()
             # Process the DataFrame as needed
             self.logger.error(f'Processed source name: {source_name}')
             # 20240103 
@@ -204,10 +205,21 @@ class AggregateHAlogVisitor(LogVisitor):
 
             # the timestamps in the files are not aligned with the timestamps in the file names, 
             # so get the starting timestamp from the first line of the file
+            day_bin = None
             with open(interim_name, 'r') as f:
-                first_line = f.readline().rstrip()
-                bits = first_line.split()
-                day_bin = datetime.strptime(bits[6], '[%d/%b/%Y:%H:%M:%S.%f]')
+                for line in f.readline():
+                    line = f.readline().rstrip()
+                    bits = line.split()
+                    try:
+                        day_bin = datetime.strptime(bits[6], '[%d/%b/%Y:%H:%M:%S.%f]')
+                        break
+                    except:
+                        pass
+
+            if day_bin is None:
+                self.logger.error(f'End visit with no data for {source_name}')
+                return
+
             # because I don't want to read in the entire file to get the timestamp from the last line logged in the file
             # try using an extra hour per day
             for hour in range(0, 26):

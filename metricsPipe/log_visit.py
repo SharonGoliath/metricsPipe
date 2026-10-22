@@ -269,6 +269,7 @@ class MetricsPipeOrganizeExecutes(OrganizeExecutesRunnerMeta):
 class LogVisitor:
     def __init__(self, **kwargs):
         self.config = kwargs.get('config', None)
+        self.reporter = kwargs.get('reporter', None)
         self.storage_name = kwargs.get('storage_name', None)
         self.logger = logging.getLogger(__name__)
 
