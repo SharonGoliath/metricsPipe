@@ -89,6 +89,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
 
+logger = logging.getLogger(__name__)
+
 UNSPECIFIED = 'unspecified'
 TALLY_DIR_NAME = 'argus_sync_tally'
 MAX_CALENDAR_WEEKS = 78
@@ -318,7 +320,8 @@ def parse_lines(lines: Iterable[str]) -> list[SyncQuery]:
         try:
             record = json.loads(line)
         except json.JSONDecodeError as exc:
-            raise SyncTrafficError(f'line {line_no}: {exc.msg}') from exc
+            logger.warning('line %s: %s', line_no, exc.msg)
+            continue
         if not isinstance(record, dict):
             raise SyncTrafficError(f'line {line_no}: log line is not a JSON object')
         query = sync_query_from(record, line_no)

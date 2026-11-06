@@ -213,11 +213,14 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(week.query_volume, 2)
         self.assertEqual(week.failure_volume, 1)
 
-    def test_rejects_bad_duration_and_json(self):
+    def test_skips_a_line_that_is_not_json(self):
+        parsed = parse_lines(["{not json", make(at_week(0), job="kept")])
+        self.assertEqual(len(parsed), 1)
+        self.assertEqual(parsed[0].line_no, 2)
+
+    def test_rejects_bad_duration_and_missing_ip(self):
         with self.assertRaises(SyncTrafficError):
             parse_lines([make(at_week(0), include_duration=False)])
-        with self.assertRaises(SyncTrafficError):
-            parse_lines(["{not json"])
         with self.assertRaises(SyncTrafficError):
             parse_lines(
                 [
@@ -580,8 +583,9 @@ class TallyTests(unittest.TestCase):
 
             broken = Path(tmp) / "broken.jsonl"
             broken.write_text("{nope\n", encoding="utf-8")
-            with self.assertRaises(SyncTrafficError):
-                merge_path(str(Path(tmp) / "bad-out"), str(broken))
+            broken_out = Path(tmp) / "bad-out"
+            self.assertEqual(merge_path(str(broken_out), str(broken)), "merged")
+            self.assertIn("Stopped:", (broken_out / "summary.txt").read_text(encoding="utf-8"))
 
     def test_two_files_accumulate_and_a_repeat_does_not_double_count(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -658,21 +662,19 @@ class TallyTests(unittest.TestCase):
             week = next(row for row in rows if row["week_index"] == "1")
             self.assertEqual(week["query_volume"], "1")
 
-    def test_a_bad_reread_leaves_the_previous_slice(self):
+    def test_a_bad_line_does_not_drop_the_other_queries(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             source = root / "one.jsonl"
-            source.write_text("\n".join(span_lines(21)) + "\n", encoding="utf-8")
+            lines = span_lines(21)
+            lines.insert(3, "{nope")
+            source.write_text("\n".join(lines) + "\n", encoding="utf-8")
             tally = root / "tally"
-            merge_path(str(tally), str(source))
-            stored = next(
-                path for path in (tally / "slices").glob("*.json") if path.name != "index.json"
-            )
-            before = stored.read_text(encoding="utf-8")
-            source.write_text("{nope\n", encoding="utf-8")
-            with self.assertRaises(SyncTrafficError):
-                merge_path(str(tally), str(source))
-            self.assertEqual(stored.read_text(encoding="utf-8"), before)
+            self.assertEqual(merge_path(str(tally), str(source)), "merged")
+            with (tally / "weekly.csv").open(encoding="utf-8") as handle:
+                rows = list(csv.DictReader(handle))
+            week = next(row for row in rows if row["week_index"] == "1")
+            self.assertEqual(week["query_volume"], "1")
             summary = (tally / "summary.txt").read_text(encoding="utf-8")
             self.assertIn("complete weeks: 21", summary)
 
